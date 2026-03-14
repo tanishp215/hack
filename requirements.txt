@@ -1,0 +1,10 @@
+pandas
+numpy
+scipy
+xarray
+netCDF4
+plotly
+pydeck
+streamlit
+scikit-learn
+pyarrow
