@@ -17,27 +17,27 @@ from src.simulate import simulate_particles
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _OUTPUT_PATH = _REPO_ROOT / "results" / "all_trajectories.parquet"
 
-# 18 coastal release points — coordinates placed in ocean near the coast,
-# not at city centers which may be inland/on land in the OSCAR grid
+# 18 coastal release points — pushed 2-3° offshore into open water where
+# OSCAR has non-zero surface currents. Previous coords sat on land grid cells.
 CITIES: dict[str, tuple[float, float]] = {
-    "Shanghai":  (31.2, 122.0),
-    "Jakarta":   (-6.1, 106.8),
-    "Manila":    (14.5, 121.0),
-    "Mumbai":    (19.0, 72.8),
-    "Lagos":     (6.4, 3.4),
-    "Santos":    (-23.9, -46.3),
-    "New York":  (40.6, -73.8),
-    "Los Angeles": (33.7, -118.3),
-    "Istanbul":  (41.0, 29.0),
-    "Bangkok":   (13.1, 100.5),
-    "Tokyo":     (35.4, 139.8),
-    "Cape Town": (-33.9, 18.4),
-    "Lima":      (-12.0, -77.1),
-    "Miami":     (25.76, -80.19),
-    "London":    (51.5, 1.0),
-    "Sydney":    (-33.8, 151.3),
-    "Mombasa":   (-4.0, 39.7),
-    "Dubai":     (25.2, 55.3),
+    "Shanghai":  (30.5, 124.0),   # East China Sea
+    "Jakarta":   (-7.5, 106.0),   # Java Sea, south
+    "Manila":    (14.0, 119.0),   # South China Sea, west
+    "Mumbai":    (18.0, 71.0),    # Arabian Sea, west
+    "Lagos":     (4.0, 2.5),      # Gulf of Guinea, south
+    "Santos":    (-25.0, -43.5),  # South Atlantic, east
+    "New York":  (40.0, -71.5),   # Atlantic shelf
+    "Los Angeles": (33.0, -120.0),# Pacific, west
+    "Istanbul":  (36.0, 28.0),    # Eastern Mediterranean
+    "Bangkok":   (10.0, 100.0),   # Gulf of Thailand, south
+    "Tokyo":     (34.5, 142.0),   # Kuroshio Current, east
+    "Cape Town": (-35.5, 17.5),   # Benguela/Agulhas
+    "Lima":      (-13.0, -79.0),  # Humboldt Current
+    "Miami":     (27.0, -79.0),   # Gulf Stream
+    "London":    (49.0, -5.0),    # Celtic Sea / Atlantic approach
+    "Sydney":    (-35.0, 153.0),  # East Australian Current
+    "Mombasa":   (-5.0, 41.5),    # Somali Current
+    "Dubai":     (24.0, 58.0),    # Arabian Sea via Gulf of Oman
 }
 
 
@@ -59,10 +59,10 @@ if __name__ == "__main__":
             ds,
             start_lat=lat,
             start_lon=lon,
-            n_particles=50,
+            n_particles=80,
             n_days=1825,     # 5 years
             dt_days=1.0,
-            spread=0.5,
+            spread=1.5,
         )
 
         # Tag each row with the source city

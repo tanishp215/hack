@@ -1,54 +1,36 @@
-"""Lazy loader for OSCAR ocean surface current NetCDF files.
+"""Loader for the merged OSCAR ocean surface current NetCDF file.
 
 Provides `load_oscar()` for downstream code and a CLI inspection mode.
 """
 
 import os
-import glob
 from pathlib import Path
 
 import xarray as xr
 
-# Resolve the OSCAR data directory relative to the repo root
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_DATA_DIR = _REPO_ROOT / "data" / "OSCAR_L4_OC_FINAL_V2.0_2.0-20260314_215516"
+_DEFAULT_PATH = _REPO_ROOT / "data" / "currents.nc"
 
 
-def load_oscar(data_dir: os.PathLike | str | None = None) -> xr.Dataset:
-    """Return a lazily-loaded xarray Dataset of all daily OSCAR files.
+def load_oscar(path: os.PathLike | str | None = None) -> xr.Dataset:
+    """Return a lazily-loaded xarray Dataset from the merged currents file.
 
     Parameters
     ----------
-    data_dir : path, optional
-        Override the default OSCAR data directory.
+    path : path, optional
+        Override the default currents.nc location.
 
     Returns
     -------
     xr.Dataset
         Lazily-loaded dataset (backed by dask arrays).
     """
-    data_dir = Path(data_dir) if data_dir is not None else _DATA_DIR
-    pattern = str(data_dir / "oscar_currents_final_*.nc")
-    files = sorted(glob.glob(pattern))
+    path = Path(path) if path is not None else _DEFAULT_PATH
 
-    if not files:
-        raise FileNotFoundError(f"No files matching {pattern}")
+    if not path.exists():
+        raise FileNotFoundError(f"Currents file not found: {path}")
 
-    # Filter out corrupt / duplicate-download files
-    valid_files: list[str] = []
-    for f in files:
-        if " " in Path(f).name or "(1)" in Path(f).name:
-            continue
-        try:
-            xr.open_dataset(f, engine="netcdf4").close()
-            valid_files.append(f)
-        except (OSError, ValueError):
-            continue
-
-    if not valid_files:
-        raise FileNotFoundError("All NetCDF files are corrupt or invalid")
-
-    return xr.open_mfdataset(valid_files, combine="by_coords", chunks="auto")
+    return xr.open_dataset(path, chunks="auto")
 
 
 if __name__ == "__main__":
