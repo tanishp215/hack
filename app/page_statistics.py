@@ -45,6 +45,18 @@ from src.analysis import (
 )
 from src.data_loader import load_microplastics
 
+
+def _fmt_density(v: float) -> str:
+    """Format a density value with appropriate precision and units."""
+    if v >= 1000:
+        return f"{v / 1000:.1f}K pieces/m³"
+    if v >= 1:
+        return f"{v:.1f} pieces/m³"
+    if v >= 0.001:
+        return f"{v:.3f} pieces/m³"
+    return f"{v:.2e} pieces/m³"
+
+
 # ---------------------------------------------------------------------------
 # Data loading — parquet preferred, CSV fallback
 # ---------------------------------------------------------------------------
@@ -209,11 +221,9 @@ def render() -> None:
 
             st.info(
                 f"**Key finding:** The **{worst_basin}** has the highest mean microplastic "
-                f"density at {worst_mean:.1f} pieces/m³ — approximately **{ratio:.0f}×** higher "
-                f"than the {best_basin} ({best_mean:.3f} pieces/m³). All values are shown on "
-                f"a log scale because density spans several orders of magnitude across basins. "
-                f"Error bars have been replaced with interquartile range bands to avoid "
-                f"distortion from extreme outliers."
+                f"density at {_fmt_density(worst_mean)} — approximately **{ratio:.0f}×** higher "
+                f"than the {best_basin} ({_fmt_density(best_mean)}). Values are shown on "
+                f"a log scale because density spans several orders of magnitude across basins."
             )
             st.divider()
 
@@ -226,23 +236,22 @@ def render() -> None:
 
             with col_snapshot:
                 st.subheader("Basin Snapshot")
-                global_mean = float(basin_stats["mean"].mean())
                 sorted_basins = basin_stats.sort_values("mean", ascending=False)
 
-                for basin in sorted_basins.index:
+                for rank, basin in enumerate(sorted_basins.index, start=1):
                     row = sorted_basins.loc[basin]
                     basin_mean = float(row["mean"])
-                    pct_delta  = (basin_mean / global_mean - 1) * 100
+                    n_nonzero  = int(row["n_nonzero"]) if "n_nonzero" in row.index else int(row["count"])
+                    total      = int(row["count"])
                     st.metric(
-                        label=basin,
-                        value=f"{basin_mean:.2f} pieces/m³",
-                        delta=f"{pct_delta:+.0f}% vs global avg",
-                        delta_color="inverse" if basin_mean < global_mean else "normal",
+                        label=f"#{rank} {basin}",
+                        value=_fmt_density(basin_mean),
+                        delta=f"{n_nonzero:,} detections / {total:,} total",
+                        delta_color="off",
                     )
 
                 st.caption(
-                    "Values shown are mean density (back-transformed from log scale). "
-                    "Positive delta = above global average."
+                    "Values shown are geometric mean density (non-zero observations only)."
                 )
 
             # ── Raw stats expander ───────────────────────────────────────
@@ -252,10 +261,10 @@ def render() -> None:
                 display.columns = ["Rank", "Ocean Basin", "Mean", "Median", "Q25", "Q75", "Count"]
                 st.dataframe(
                     display.style.format({
-                        "Mean":   "{:.4f}",
-                        "Median": "{:.4f}",
-                        "Q25":    "{:.4f}",
-                        "Q75":    "{:.4f}",
+                        "Mean":   "{:.3g}",
+                        "Median": "{:.3g}",
+                        "Q25":    "{:.3g}",
+                        "Q75":    "{:.3g}",
                         "Count":  "{:.0f}",
                     }),
                     use_container_width=True,

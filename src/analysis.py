@@ -171,9 +171,11 @@ def validate_dataframe(df: pd.DataFrame, required_cols: list[str]) -> None:
 def compute_basin_statistics(df: pd.DataFrame) -> pd.DataFrame:
     """Compute log-scale descriptive statistics of microplastics density by ocean basin.
 
-    All statistics are computed on log10-transformed density to handle the
-    extreme right-skew and outliers in pollution data. Both log-scale values
-    (used for plotting) and back-transformed display values are returned.
+    Zero-measurement rows (no-detection artifacts) are excluded from the
+    log-transform so they do not drag the geometric mean toward zero.
+    Both log-scale values (used for plotting) and back-transformed display
+    values are returned, along with separate counts for total rows and
+    non-zero detections.
 
     Args:
         df: Cleaned microplastics DataFrame containing at least the columns
@@ -182,20 +184,20 @@ def compute_basin_statistics(df: pd.DataFrame) -> pd.DataFrame:
     Returns:
         A DataFrame indexed by ocean basin with columns:
         ``log_mean``, ``log_median``, ``log_q25``, ``log_q75``, ``log_std``,
-        ``mean``, ``median``, ``p25``, ``p75``, ``count``.
+        ``mean``, ``median``, ``p25``, ``p75``, ``count``, ``n_nonzero``.
         Sorted descending by log_mean.
     """
     validate_dataframe(df, ["ocean", "measurement"])
     subset = df.dropna(subset=["ocean", "measurement"]).copy()
-    # Clip to avoid log(0); any non-positive value is set to 1e-10
-    subset["log_measurement"] = np.log10(subset["measurement"].clip(lower=1e-10))
 
-    def _basin_stats(s: pd.Series) -> pd.Series:
-        log_mean   = s.mean()
-        log_median = s.median()
-        log_q25    = s.quantile(0.25)
-        log_q75    = s.quantile(0.75)
-        log_std    = s.std()
+    def _basin_stats(grp_df: pd.DataFrame) -> pd.Series:
+        nonzero = grp_df[grp_df["measurement"] > 0]["measurement"]
+        log_vals = np.log10(nonzero)
+        log_mean   = log_vals.mean()
+        log_median = log_vals.median()
+        log_q25    = log_vals.quantile(0.25)
+        log_q75    = log_vals.quantile(0.75)
+        log_std    = log_vals.std()
         return pd.Series({
             "log_mean":   log_mean,
             "log_median": log_median,
@@ -207,13 +209,14 @@ def compute_basin_statistics(df: pd.DataFrame) -> pd.DataFrame:
             "median":     10 ** log_median,
             "p25":        10 ** log_q25,
             "p75":        10 ** log_q75,
-            "count":      float(len(s)),
+            "count":      float(len(grp_df)),
+            "n_nonzero":  float(len(nonzero)),
         })
 
     # Build stats explicitly to avoid pandas-version-dependent apply() behaviour
-    # (apply on a SeriesGroupBy may return a MultiIndex Series instead of DataFrame)
+    # (apply on a DataFrameGroupBy may return a MultiIndex Series instead of DataFrame)
     stats_df = pd.DataFrame(
-        {ocean: _basin_stats(grp) for ocean, grp in subset.groupby("ocean")["log_measurement"]}
+        {ocean: _basin_stats(grp) for ocean, grp in subset.groupby("ocean")}
     ).T
     stats_df.index.name = "ocean_basin"
     stats_df = stats_df.sort_values("log_mean", ascending=False)
@@ -402,15 +405,11 @@ def _fmt_density(v: float) -> str:
 
 
 def build_basin_chart(basin_stats: pd.DataFrame) -> go.Figure:
-    """Build a vertical grouped bar chart of microplastic density by ocean basin.
+    """Build a vertical bar chart of microplastic density by ocean basin.
 
-    Uses log-scale statistics from :func:`compute_basin_statistics` so that
-    extreme outliers cannot break the axis. Three visual layers convey
-    distributional richness:
-
-    - Shaded IQR bands (background)  — q25 to q75 spread
-    - Mean bars (primary)             — log-scale mean per basin
-    - Median diamond markers          — reveals skew when mean >> median
+    Uses log-scale statistics from :func:`compute_basin_statistics`.
+    Bars use an opacity gradient (darkest = highest mean) within a single
+    blue family so relative ranking is immediately legible.
 
     Args:
         basin_stats: Output of :func:`compute_basin_statistics`.
@@ -418,77 +417,41 @@ def build_basin_chart(basin_stats: pd.DataFrame) -> go.Figure:
     Returns:
         A Plotly Figure ready for ``st.plotly_chart``.
     """
-    # Sort descending by mean so highest basin is on the left
     bs = basin_stats.sort_values("log_mean", ascending=False)
     basins = bs.index.tolist()
     n = len(basins)
-    bar_colors = [PALETTE[i % len(PALETTE)] for i in range(n)]
+    bar_colors = [f"rgba(31, 119, 180, {1.0 - 0.12 * i})" for i in range(n)]
 
-    global_log_mean = float(bs["log_mean"].mean())
-    global_mean_display = 10 ** global_log_mean
+    global_mean_display = float(bs["mean"].mean())
+    total_obs = int(bs["count"].sum())
 
     fig = go.Figure()
 
-    # ── Layer 1: IQR range bands (one invisible bar from q25 to q75) ─────
-    # Plotly doesn't have native floating bars on log axes cleanly, so we
-    # add a thin rectangle shape per basin using fig.add_shape.
-    for i, basin in enumerate(basins):
-        row = bs.loc[basin]
-        # Convert log values to actual for shape coordinates (log axis handles it)
-        fig.add_shape(
-            type="rect",
-            x0=i - 0.3, x1=i + 0.3,
-            y0=row["log_q25"], y1=row["log_q75"],
-            xref="x", yref="y",
-            fillcolor=bar_colors[i],
-            opacity=0.18,
-            line_width=0,
-            layer="below",
-        )
+    # ── Mean bars ────────────────────────────────────────────────────────
+    has_nonzero = "n_nonzero" in bs.columns
+    customdata = bs[["mean", "n_nonzero", "count"]].values if has_nonzero else bs[["mean", "count", "count"]].values
 
-    # ── Layer 2: Mean bars ────────────────────────────────────────────────
     fig.add_trace(go.Bar(
         x=basins,
-        y=bs["log_mean"].tolist(),
-        name="Mean Density",
+        y=bs["mean"].tolist(),
+        name="Geometric Mean Density",
         marker=dict(
             color=bar_colors,
-            opacity=0.88,
             line=dict(width=1.5, color="white"),
         ),
         width=0.5,
-        customdata=bs[["mean", "median", "p25", "p75", "count"]].values,
+        customdata=customdata,
         hovertemplate=(
             "<b>%{x}</b><br>"
-            "Mean: %{customdata[0]:.3f} pieces/m³<br>"
-            "Median: %{customdata[1]:.3f} pieces/m³<br>"
-            "IQR: %{customdata[2]:.3f} – %{customdata[3]:.3f}<br>"
-            "Observations: %{customdata[4]:,.0f}<extra></extra>"
-        ),
-    ))
-
-    # ── Layer 3: Median diamond markers ──────────────────────────────────
-    fig.add_trace(go.Scatter(
-        x=basins,
-        y=bs["log_median"].tolist(),
-        name="Median",
-        mode="markers",
-        marker=dict(
-            symbol="diamond",
-            size=12,
-            color="white",
-            line=dict(color=PALETTE[1], width=2.5),
-        ),
-        customdata=bs["median"].values,
-        hovertemplate=(
-            "<b>%{x}</b><br>"
-            "Median: %{customdata:.3f} pieces/m³<extra></extra>"
+            "Geometric mean: %{customdata[0]:.3g} pieces/m³<br>"
+            "Detections: %{customdata[1]:,.0f} / %{customdata[2]:,.0f} total"
+            "<extra></extra>"
         ),
     ))
 
     # ── Global mean reference line ────────────────────────────────────────
     fig.add_hline(
-        y=global_log_mean,
+        y=global_mean_display,
         line_dash="dot",
         line_color="#e74c3c",
         line_width=2,
@@ -497,44 +460,16 @@ def build_basin_chart(basin_stats: pd.DataFrame) -> go.Figure:
         annotation_font=dict(color="#e74c3c", size=11, family="Inter, Arial, sans-serif"),
     )
 
-    # ── Value annotations above each bar ─────────────────────────────────
-    for i, basin in enumerate(basins):
-        row = bs.loc[basin]
-        fig.add_annotation(
-            x=basin,
-            y=row["log_mean"] + 0.10,
-            text=_fmt_density(row["mean"]),
-            showarrow=False,
-            font=dict(size=11, color="#444444", family="Inter, Arial, sans-serif"),
-            yref="y",
-        )
-
-    # ── IQR legend proxy (invisible bar for legend entry) ─────────────────
-    fig.add_trace(go.Bar(
-        x=[None], y=[None],
-        name="Interquartile Range (25th–75th %ile)",
-        marker=dict(color=PALETTE[0], opacity=0.25),
-        showlegend=True,
-    ))
-
     # ── Layout ────────────────────────────────────────────────────────────
-    apply_standard_layout(
-        fig,
-        "Microplastic Density by Ocean Basin"
-        "<br><sup style='font-size:11px;color:#666'>Mean density shown on log scale · "
-        "Diamond markers show median · Shaded bands show interquartile range</sup>",
+    title = (
+        f"Microplastic Density by Ocean Basin (n={total_obs:,} observations)"
     )
+    apply_standard_layout(fig, title)
     fig.update_layout(
-        height=500,
-        showlegend=True,
-        legend=dict(
-            x=0.98, y=0.98, xanchor="right", yanchor="top",
-            bgcolor="rgba(255,255,255,0.85)", borderwidth=0,
-            font=dict(size=11),
-        ),
+        height=420,
+        showlegend=False,
         bargap=0.25,
         margin=dict(l=70, r=40, t=80, b=60),
-        barmode="overlay",
         xaxis=dict(type="category"),
     )
     fig.update_xaxes(
@@ -543,9 +478,8 @@ def build_basin_chart(basin_stats: pd.DataFrame) -> go.Figure:
         showgrid=False,
     )
     fig.update_yaxes(
-        title_text="Mean Density (pieces/m³, log scale)",
-        tickvals=[-3, -2, -1, 0, 1, 2, 3, 4],
-        ticktext=["0.001", "0.01", "0.1", "1", "10", "100", "1K", "10K"],
+        type="log",
+        title_text="Density (pieces/m³)",
         showgrid=True,
         gridcolor="#f0f0f0",
         gridwidth=1,
