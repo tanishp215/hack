@@ -307,8 +307,16 @@ def render() -> None:
                 st.subheader("Cluster Summary")
                 display_cols = ["label", "center_lat", "center_lon", "observation_count", "mean_density"]
                 summary_display = cluster_summary[display_cols].copy()
+                summary_display.insert(0, "#", range(1, len(summary_display) + 1))
+                summary_display = summary_display.rename(columns={
+                    "label": "Cluster ID",
+                    "center_lat": "Center Lat (°)",
+                    "center_lon": "Center Lon (°)",
+                    "observation_count": "Observations",
+                    "mean_density": "Mean Density (pieces/m³)",
+                })
 
-                max_density_idx = summary_display["mean_density"].idxmax()
+                max_density_idx = summary_display["Mean Density (pieces/m³)"].idxmax()
 
                 def _highlight_max(row):
                     return [
@@ -319,8 +327,13 @@ def render() -> None:
                 st.dataframe(
                     summary_display.style
                         .apply(_highlight_max, axis=1)
-                        .format({"mean_density": "{:.1f}"}),
+                        .format({
+                            "Center Lat (°)": "{:.2f}",
+                            "Center Lon (°)": "{:.2f}",
+                            "Mean Density (pieces/m³)": "{:.4f}",
+                        }),
                     use_container_width=True,
+                    hide_index=True,
                 )
 
             cluster_labels_arr = clustered_df["cluster"].values

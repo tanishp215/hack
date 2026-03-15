@@ -366,7 +366,11 @@ def build_basin_chart(basin_stats: pd.DataFrame) -> go.Figure:
     apply_standard_layout(fig, "Mean Microplastic Density by Ocean Basin")
     fig.update_layout(showlegend=False)
     fig.update_xaxes(title_text="Ocean Basin", showgrid=False)
-    fig.update_yaxes(title_text="Mean Density (pieces/m³)")
+    fig.update_yaxes(
+        title_text="Mean Density (pieces/m³)",
+        rangemode="tozero",
+        tickformat=",.2f",
+    )
 
     return fig
 
@@ -452,11 +456,13 @@ def build_temporal_chart(temporal_df: pd.DataFrame) -> go.Figure:
     fig.update_yaxes(
         title_text="Number of Observations",
         gridcolor="#f0f0f0", gridwidth=1, showline=False,
+        rangemode="tozero", tickformat=",d",
         secondary_y=False,
     )
     fig.update_yaxes(
         title_text="Mean Density (pieces/m³)",
         showgrid=False, showline=False,
+        rangemode="tozero", tickformat=",.4f",
         secondary_y=True,
     )
 
@@ -464,7 +470,7 @@ def build_temporal_chart(temporal_df: pd.DataFrame) -> go.Figure:
 
 
 def build_cluster_map(df: pd.DataFrame, cluster_summary: pd.DataFrame) -> go.Figure:
-    """Build a Plotly mapbox scatter map coloured by DBSCAN cluster membership.
+    """Build a Plotly geo scatter map coloured by DBSCAN cluster membership.
 
     # Expected real-world cluster locations (if data is accurate):
     #   - North Pacific Gyre  (~30°N, 140°W) — Great Pacific Garbage Patch
@@ -473,7 +479,8 @@ def build_cluster_map(df: pd.DataFrame, cluster_summary: pd.DataFrame) -> go.Fig
     #   - South Atlantic Gyre (~35°S,  15°W)
     #   - Indian Ocean Gyre   (~30°S,  80°E)
 
-    Uses ``mapbox_style="carto-positron"`` (no API key required).  All raw
+    Uses ``go.Scattergeo`` with Plotly's Natural Earth projection so country
+    names are always rendered in English (no tile API key required).  All raw
     data points are plotted, noise in light grey, clusters in ``PALETTE``
     colors.  Cluster centers are overlaid as larger bordered markers.
 
@@ -485,78 +492,82 @@ def build_cluster_map(df: pd.DataFrame, cluster_summary: pd.DataFrame) -> go.Fig
             ``observation_count``, ``mean_density``, ``max_density``.
 
     Returns:
-        A Plotly Figure using go.Scattermapbox, ready for ``st.plotly_chart``.
+        A Plotly Figure using go.Scattergeo, ready for ``st.plotly_chart``.
     """
     # Build cluster_id → color lookup; noise gets fixed grey
     id_to_color: dict[int, str] = {
         row.cluster_id: PALETTE[i % len(PALETTE)]
         for i, row in enumerate(cluster_summary.itertuples())
     }
-    id_to_label: dict[int, str] = {
-        row.cluster_id: row.label
-        for row in cluster_summary.itertuples()
-    }
+
+    # --- Log-scale density for continuous coloring ---
+    log_density = np.log10(df["measurement"].clip(lower=1e-4) + 1e-4)
+    cmin = float(log_density.quantile(0.01))
+    cmax = float(log_density.quantile(0.99))
+
+    # Build colorbar tick labels at clean powers of 10
+    _tick_raw = [1e-4, 1e-3, 1e-2, 0.1, 1, 10, 100, 1_000, 10_000, 100_000, 800_000]
+    _tick_vals = [float(np.log10(v + 1e-4)) for v in _tick_raw]
+    _tick_text = ["<0.001", "0.001", "0.01", "0.1", "1", "10", "100", "1k", "10k", "100k", "800k"]
+    # Keep only ticks within the data range
+    _ticks = [(v, t) for v, t in zip(_tick_vals, _tick_text) if cmin <= v <= cmax]
+    tick_vals = [v for v, _ in _ticks]
+    tick_text = [t for _, t in _ticks]
 
     fig = go.Figure()
 
-    # --- Noise points (cluster == -1) ---
-    noise = df[df["cluster"] == -1]
-    if len(noise):
-        fig.add_trace(go.Scattermapbox(
-            lat=noise["latitude"],
-            lon=noise["longitude"],
-            mode="markers",
-            name="Noise",
-            marker=dict(size=4, color=NOISE_COLOR, opacity=0.3),
-            hovertemplate=(
-                "Lat: %{lat:.3f}, Lon: %{lon:.3f}<br>"
-                "Density: %{customdata:.4f} pieces/m³<br>"
-                "Cluster: Noise<extra></extra>"
+    # --- All observation points colored by log-density (single trace, shared colorbar) ---
+    fig.add_trace(go.Scattergeo(
+        lat=df["latitude"],
+        lon=df["longitude"],
+        mode="markers",
+        name="Observations",
+        marker=dict(
+            size=4,
+            color=log_density,
+            colorscale="YlOrRd",
+            cmin=cmin,
+            cmax=cmax,
+            opacity=0.65,
+            showscale=True,
+            colorbar=dict(
+                title=dict(text="Density<br>(pieces/m³)", font=dict(size=11)),
+                tickvals=tick_vals,
+                ticktext=tick_text,
+                thickness=14,
+                len=0.75,
+                x=1.01,
             ),
-            customdata=noise["measurement"],
-        ))
+        ),
+        customdata=np.stack([df["measurement"], df["cluster"]], axis=1),
+        hovertemplate=(
+            "Lat: %{lat:.3f}, Lon: %{lon:.3f}<br>"
+            "Density: %{customdata[0]:.4f} pieces/m³<extra></extra>"
+        ),
+        showlegend=False,
+    ))
 
-    # --- Cluster data points — one trace per cluster for legend + color ---
-    for _, row in cluster_summary.iterrows():
-        cid = row["cluster_id"]
-        label = row["label"]
-        color = id_to_color[cid]
-        pts = df[df["cluster"] == cid]
-
-        fig.add_trace(go.Scattermapbox(
-            lat=pts["latitude"],
-            lon=pts["longitude"],
-            mode="markers",
-            name=label,
-            marker=dict(size=5, color=color, opacity=0.5),
-            customdata=pts["measurement"],
-            hovertemplate=(
-                f"<b>{label}</b><br>"
-                "Lat: %{lat:.3f}, Lon: %{lon:.3f}<br>"
-                "Density: %{customdata:.4f} pieces/m³<extra></extra>"
-            ),
-            legendgroup=label,
-        ))
-
-    # --- Cluster centers (larger bordered markers) ---
-    fig.add_trace(go.Scattermapbox(
+    # --- Cluster centers — numbered markers (number shown on marker) ---
+    cluster_numbers = [str(i + 1) for i in range(len(cluster_summary))]
+    fig.add_trace(go.Scattergeo(
         lat=cluster_summary["center_lat"],
         lon=cluster_summary["center_lon"],
         mode="markers+text",
         name="Cluster Centers",
-        text=cluster_summary["label"],
-        textposition="top right",
-        textfont=dict(size=10, color=DARK_TEXT, family="Inter"),
+        text=cluster_numbers,
+        textposition="middle center",
+        textfont=dict(size=11, color="white", family="Inter, Arial, sans-serif"),
         marker=dict(
-            size=14,
+            size=22,
             color=[id_to_color[cid] for cid in cluster_summary["cluster_id"]],
             opacity=1.0,
-            symbol="circle",
+            line=dict(width=2, color="white"),
+            showscale=False,
         ),
-        customdata=cluster_summary[["label", "observation_count", "mean_density", "max_density"]].values,
+        customdata=cluster_summary[["label", "observation_count", "mean_density", "max_density", "center_lat", "center_lon"]].values,
         hovertemplate=(
             "<b>%{customdata[0]}</b><br>"
-            "Center: %{lat:.2f}°, %{lon:.2f}°<br>"
+            "Center: %{customdata[4]:.2f}°, %{customdata[5]:.2f}°<br>"
             "Observations: %{customdata[1]:,}<br>"
             "Mean density: %{customdata[2]:.4f} pieces/m³<br>"
             "Max density: %{customdata[3]:.4f} pieces/m³<extra></extra>"
@@ -564,18 +575,17 @@ def build_cluster_map(df: pd.DataFrame, cluster_summary: pd.DataFrame) -> go.Fig
         showlegend=True,
     ))
 
-    # --- Map center and zoom from data extent ---
-    center_lat = float(df["latitude"].mean())
-    center_lon = float(df["longitude"].mean())
-    lon_range = max(float(df["longitude"].max() - df["longitude"].min()), 1.0)
-    zoom = round(max(0.5, min(5.0, float(np.log2(360.0 / lon_range)) + 1.2)), 1)
-
     apply_standard_layout(fig, "DBSCAN Cluster Map — Microplastic Hotspots")
     fig.update_layout(
-        mapbox=dict(
-            style="carto-positron",
-            center=dict(lat=center_lat, lon=center_lon),
-            zoom=zoom,
+        geo=dict(
+            projection_type="natural earth",
+            showland=True, landcolor="#f5f5f5",
+            showocean=True, oceancolor="#d8eaf8",
+            showcoastlines=True, coastlinecolor="#aaaaaa", coastlinewidth=0.5,
+            showlakes=True, lakecolor="#d8eaf8",
+            showcountries=True, countrycolor="#cccccc", countrywidth=0.5,
+            showframe=False,
+            bgcolor="white",
         ),
         legend=dict(
             x=0.01, y=0.99, xanchor="left", yanchor="top",
@@ -641,10 +651,11 @@ def build_correlation_charts(
         x = subset[col].astype(float).values
         y = subset["measurement"].astype(float).values
 
-        # OLS trendline via numpy polyfit
-        coeffs = np.polyfit(x, y, 1)
+        # Trendline fitted in log-y space (density is log-distributed)
+        y_pos = y.clip(min=1e-4)
         x_sorted = np.sort(x)
-        y_trend = np.polyval(coeffs, x_sorted)
+        coeffs = np.polyfit(x, np.log10(y_pos), 1)
+        y_trend = 10 ** np.polyval(coeffs, x_sorted)
 
         # Annotation color by effect size
         corr = corr_lookup.get(col, {})
@@ -689,7 +700,7 @@ def build_correlation_charts(
 
         apply_standard_layout(fig, f"Density vs. {x_label}")
         fig.update_xaxes(title_text=x_label)
-        fig.update_yaxes(title_text="Density (pieces/m³)")
+        fig.update_yaxes(title_text="Density (pieces/m³)", type="log")
 
         fig.add_annotation(
             text=f"Spearman ρ = {rho:.3f}, p = {p_val:.4f}, n = {n:,}",
