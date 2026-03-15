@@ -12,6 +12,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 APP_TITLE = "PlasticFlow"
 PAGE_OPTIONS = (
     "Global Observations Map",
+    "Ocean Currents",
+    "Particle Drift",
     "Statistical Insights",
 )
 
@@ -24,6 +26,18 @@ def render_navigation() -> str:
 
 def render_selected_page(selected_page: str) -> None:
     """Render the page selected in the app sidebar."""
+
+    if selected_page == "Ocean Currents":
+        from app import page_currents
+
+        page_currents.render()
+        return
+
+    if selected_page == "Particle Drift":
+        from app import page_drift
+
+        page_drift.render()
+        return
 
     if selected_page == "Statistical Insights":
         from app import page_statistics
@@ -40,7 +54,7 @@ def render_footer() -> None:
     """Render shared sidebar footer content."""
 
     st.sidebar.markdown("---")
-    st.sidebar.caption("Data source: NOAA NCEI Marine Microplastics Database")
+    st.sidebar.caption("Data: NOAA NCEI Marine Microplastics & NASA OSCAR Surface Currents")
 
 
 def main() -> None:

@@ -68,7 +68,7 @@ def get_velocity(
 
 
 if __name__ == "__main__":
-    from process_oscar import load_oscar
+    from src.process_oscar import load_oscar
 
     # Load the full OSCAR dataset (lazy — no data in RAM yet)
     ds = load_oscar()

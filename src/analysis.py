@@ -1394,9 +1394,9 @@ def _run_quick_smoke_test() -> None:
     import sys
 
     sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-    from src.data_loader import load_microplastics
+    from src.process_noaa import load_noaa
 
-    df = load_microplastics()
+    df = load_noaa()
 
     basin_stats = compute_basin_statistics(df)
     print(basin_stats.to_string())

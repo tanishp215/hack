@@ -8,31 +8,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 import pandas as pd
 import streamlit as st
 
-# set_page_config must be the first Streamlit call in the file
-st.set_page_config(
-    page_title="Statistical Insights — Microplastics",
-    page_icon="📊",
-    layout="wide",
-)
-
-# Global CSS: hide Streamlit chrome, set font, add tab padding
-st.markdown(
-    """
-    <style>
-    #MainMenu { visibility: hidden; }
-    footer { visibility: hidden; }
-    header { visibility: hidden; }
-    html, body, [class*="css"] {
-        font-family: "Inter", "Arial", sans-serif;
-    }
-    div[data-testid="stTabContent"] {
-        padding-bottom: 2rem;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
 from src.analysis import (
     build_basin_chart,
     build_cluster_map,
@@ -43,7 +18,7 @@ from src.analysis import (
     compute_temporal_trends,
     get_cluster_summary,
 )
-from src.data_loader import load_microplastics
+from src.process_noaa import load_noaa
 
 
 def _fmt_density(v: float) -> str:
@@ -61,10 +36,10 @@ def _fmt_density(v: float) -> str:
 # Data loading — parquet preferred, CSV fallback
 # ---------------------------------------------------------------------------
 
-_PARQUET_PATH = "data/microplastics.parquet"
-_CSV_PATH = "data/microplastics.csv"
+_PARQUET_PATH = "data/NOAA.parquet"
+_CSV_PATH = "data/NOAA.csv"
 
-_FEATURE_COLS = ["latitude", "depth", "distance_to_coast", "year", "longitude"]
+_FEATURE_COLS = ["latitude", "longitude", "year"]
 
 
 @st.cache_data
@@ -74,7 +49,7 @@ def _load_data() -> pd.DataFrame:
         return pd.read_parquet(_PARQUET_PATH)
     if not os.path.exists(_CSV_PATH):
         raise FileNotFoundError(_CSV_PATH)
-    return load_microplastics(_CSV_PATH)
+    return load_noaa(_CSV_PATH)
 
 
 @st.cache_data(ttl=3600)
@@ -97,11 +72,19 @@ def _cached_correlations(df_hash: str, df: pd.DataFrame, feature_cols: tuple) ->
 
 @st.cache_data(ttl=3600)
 def _cached_cluster_data(df_hash: str, df: pd.DataFrame) -> pd.DataFrame:
-    """Run DBSCAN and return a clustered copy of df; cached to avoid re-running on every interaction."""
+    """Run DBSCAN with haversine distance and return a clustered copy of df."""
+    import numpy as np
     from sklearn.cluster import DBSCAN
 
+    EARTH_RADIUS_KM = 6371.0088
     coords = df[["latitude", "longitude"]].values
-    cluster_labels = DBSCAN(eps=3.0, min_samples=30).fit_predict(coords)
+    # Haversine metric expects radians; eps is in radians = km / earth_radius
+    cluster_labels = DBSCAN(
+        eps=250.0 / EARTH_RADIUS_KM,
+        min_samples=3,
+        metric="haversine",
+        algorithm="ball_tree",
+    ).fit_predict(np.radians(coords))
     result = df.copy()
     result["cluster"] = cluster_labels
     return result
@@ -126,6 +109,23 @@ filtered_df: pd.DataFrame = pd.DataFrame()
 def render() -> None:
     """Render the Statistical Insights page."""
     global filtered_df
+
+    st.markdown(
+        """
+        <style>
+        #MainMenu { visibility: hidden; }
+        footer { visibility: hidden; }
+        header { visibility: hidden; }
+        html, body, [class*="css"] {
+            font-family: "Inter", "Arial", sans-serif;
+        }
+        div[data-testid="stTabContent"] {
+            padding-bottom: 2rem;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     try:
         df = _load_data()

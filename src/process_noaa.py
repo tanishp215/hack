@@ -5,6 +5,7 @@ Provides `load_noaa()` for downstream code and a CLI inspection mode.
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 # Resolve the CSV path relative to the repo root
@@ -44,9 +45,22 @@ def load_noaa(csv_path: str | Path | None = None) -> pd.DataFrame:
     df = df.rename(columns=_RENAME_MAP)
     df["sample_date"] = pd.to_datetime(df["sample_date"], errors="coerce")
     df = df.dropna(subset=["measurement"])
+    df = df[df["measurement"] >= 0].copy()
     df = df.dropna(subset=["ocean"])
-    df = df.reset_index(drop=True)
 
+    # Derived columns used by analysis and app layers
+    df["year"] = df["sample_date"].dt.year.astype("Int64")
+    df["month"] = df["sample_date"].dt.month.astype("Int64")
+
+    # Latitude band classification
+    abs_lat = df["latitude"].abs()
+    df["lat_band"] = np.select(
+        [abs_lat > 60, abs_lat > 45, abs_lat > 23, abs_lat <= 23],
+        ["Polar", "Subpolar", "Temperate", "Subtropical/Tropical"],
+        default="Subtropical/Tropical",
+    )
+
+    df = df.reset_index(drop=True)
     return df
 
 

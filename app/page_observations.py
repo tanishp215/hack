@@ -37,19 +37,16 @@ OBSERVATION_COLUMN_ALIASES = {
     "sampling_method": ("marine_setting", "sampling"),
 }
 DEFAULT_DATASET_CANDIDATES = (
+    REPO_ROOT / "data" / "NOAA.csv",
+    REPO_ROOT / "data" / "NOAA.parquet",
     REPO_ROOT / "data" / "microplastics_cleaned.parquet",
     REPO_ROOT / "data" / "microplastics_cleaned.csv",
     REPO_ROOT / "data" / "microplastics.csv",
-    REPO_ROOT / "data" / "processed" / "microplastics_cleaned.parquet",
-    REPO_ROOT / "data" / "processed" / "microplastics_cleaned.csv",
-    REPO_ROOT / "plasticflow" / "data" / "processed" / "microplastics_cleaned.parquet",
-    REPO_ROOT / "plasticflow" / "data" / "processed" / "microplastics_cleaned.csv",
 )
 DEFAULT_HOTSPOT_BOUNDARY_CANDIDATES = (
+    REPO_ROOT / "results" / DEFAULT_HOTSPOT_POLYGONS_FILENAME,
     REPO_ROOT / "data" / "hotspots" / DEFAULT_HOTSPOT_POLYGONS_FILENAME,
     REPO_ROOT / "data" / "processed" / DEFAULT_HOTSPOT_POLYGONS_FILENAME,
-    REPO_ROOT / "artifacts" / "hotspots" / DEFAULT_HOTSPOT_POLYGONS_FILENAME,
-    REPO_ROOT / "output" / "hotspots" / DEFAULT_HOTSPOT_POLYGONS_FILENAME,
     REPO_ROOT / DEFAULT_HOTSPOT_POLYGONS_FILENAME,
 )
 DENSITY_COLOR_SCALE = (

@@ -202,7 +202,7 @@ def simulate_particles(
 
 if __name__ == "__main__":
     import time
-    from process_oscar import load_oscar
+    from src.process_oscar import load_oscar
 
     # Load OSCAR dataset (lazy)
     ds = load_oscar()

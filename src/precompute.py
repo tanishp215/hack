@@ -10,8 +10,8 @@ from pathlib import Path
 import pandas as pd
 
 # Imports use the same src/ package convention as other modules
-from process_oscar import load_oscar
-from simulate import simulate_particles
+from src.process_oscar import load_oscar
+from src.simulate import simulate_particles
 
 # Resolve output path relative to repo root
 _REPO_ROOT = Path(__file__).resolve().parent.parent
